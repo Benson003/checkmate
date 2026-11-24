@@ -1,0 +1,12 @@
+.{
+    .name = .checkmate,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.18.0-dev.1273+1ba843088",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "boot/uefi/",
+        "kernel/",
+    },
+    .fingerprint = 0xcf37edc7942a1a24,
+}

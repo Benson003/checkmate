@@ -41,7 +41,6 @@ pub fn build(b: *std.Build) void {
         .name = "BOOTX64",
         .use_llvm = true,
         .linkage = .static,
-        .use_lld = true,
     });
 
     const kernel = b.addExecutable(.{
@@ -49,7 +48,6 @@ pub fn build(b: *std.Build) void {
         .root_module = kernel_mod,
         .use_llvm = true,
         .linkage = .static,
-        .use_lld = true,
     });
 
     // These steps are there to build the img file QEMU will run

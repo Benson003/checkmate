@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 const std = @import("std");
 const kernel = @import("kernel");
-const elf = @import("elf.zig");
+const KElf = kernel.Elf;
 const uefi = std.os.uefi;
 
 fn bytesFromBitmask(mask_info: uefi.protocol.GraphicsOutput.PixelBitmask) u32 {
@@ -75,7 +75,7 @@ fn drainKeyStroke(con_in: *uefi.protocol.SimpleTextInput) void {
 pub fn main() noreturn {
     const string1: [*:0]const u16 = comptime std.unicode.utf8ToUtf16LeStringLiteral("Checkmate!\r\n");
     const string2: [*:0]const u16 = comptime std.unicode.utf8ToUtf16LeStringLiteral("Checkmate Confirmed.\r\n");
-    const string3: [*:0]const u16 = comptime std.unicode.utf8ToUtf16LeStringLiteral("Press any key to continue (or wait to exit)\r\n");
+    const string3: [*:0]const u16 = comptime std.unicode.utf8ToUtf16LeStringLiteral("Press any key to shutdown (or wait to exit)\r\n");
     const string4: [*:0]const u16 = comptime std.unicode.utf8ToUtf16LeStringLiteral("No Kernel Yet\r\n");
 
     const con_out = uefi.system_table.con_out orelse shutdown(.aborted);
@@ -97,7 +97,7 @@ pub fn main() noreturn {
     _ = con_out.outputString(string3) catch shutdown(.aborted);
 
     const timeout = boot_services.createEvent(.{ .timer = true }, .{}) catch shutdown(.aborted);
-    boot_services.setTimer(timeout, .relative, 3_000_000) catch shutdown(.aborted);
+    boot_services.setTimer(timeout, .relative, 30_000_000) catch shutdown(.aborted);
 
     const res = boot_services.waitForEvent(&.{ con_in.wait_for_key, timeout }) catch shutdown(.aborted);
     if (res.@"1" == 0) {
@@ -167,6 +167,11 @@ pub fn main() noreturn {
         const DescAlign = @alignOf(uefi.tables.MemoryDescriptor);
         const raw_bytes = boot_services.allocatePool(.loader_data, buf_bytes) catch shutdown(.out_of_resources);
         const mmap_buffer: []align(DescAlign) u8 = @alignCast(raw_bytes);
+
+        const pool = boot_services.allocatePages(.any, .loader_data, 256) catch shutdown(.out_of_resources);
+        boot_params.pool_base_ptr = @intFromPtr(pool.ptr);
+        boot_params.pool_len = pool.len * 4096;
+
         memory_map = boot_services.getMemoryMap(mmap_buffer) catch shutdown(.aborted);
 
         var count: u32 = 0;
@@ -196,4 +201,29 @@ pub fn main() noreturn {
     // Boot services are now exited; runtime services remain available until resetSystem.
     shutdown(.success);
     unreachable;
+}
+
+fn handleKernel(boot: *uefi.tables.SystemTable, handle: uefi.Handle) kernel.Elf.ElfAllocInfo {
+    const path: [*:0]const u16 = comptime std.unicode.utf8ToUtf16LeStringLiteral("\\EFI\\CHECKMATE.BIN");
+    const boot_services = boot.boot_services orelse shutdown(.aborted);
+    const file_protocol = boot_services.handleProtocol(uefi.protocol.File, handle) catch shutdown(.protocol_unreachable);
+    const filep = file_protocol orelse shutdown(.protocol_error);
+    const file = filep.open(path, .read, .{ .read_only = true }) catch shutdown(.protocol_error);
+    defer file.close() catch shutdown(.protocol_error);
+    const size = file.readSize() catch shutdown(.protocol_error);
+
+    if (size == 0) shutdown(.aborted);
+
+    const buff = boot_services.allocatePages(.any, .loader_data, 512) catch shutdown(.out_of_resources);
+
+    var fixed_buffer_alloc: std.heap.FixedBufferAllocator = .init(std.mem.sliceAsBytes(buff));
+
+    const allocator = fixed_buffer_alloc.allocator();
+    const file_buff = allocator.alloc(u8, size) catch shutdown(.out_of_resources);
+
+    const bytes_read = file.read(file_buff) catch shutdown(.aborted);
+
+    if (size != bytes_read) shutdown(.aborted);
+
+    return kernel.Elf.loadMinimal(allocator, file_buff, buff) catch shutdown(.aborted);
 }

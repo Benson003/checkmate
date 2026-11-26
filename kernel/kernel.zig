@@ -5,6 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 const std = @import("std");
 const MemoryType = std.os.uefi.tables.MemoryType;
+pub const Elf = @import("elf.zig");
 pub const E820_MAX_ENTRIES = 512;
 
 pub const BootParams = extern struct {
@@ -12,6 +13,8 @@ pub const BootParams = extern struct {
     screen_info: ScreenInfo,
     acpi_rsp_addr: u64,
     e820_entries: u32,
+    pool_base_ptr: u64,
+    pool_len: u64,
 };
 
 pub const BootE820Entries = extern struct {

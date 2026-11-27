@@ -39,7 +39,27 @@ pub const ScreenInfo = extern struct {
     rsvd_size: u8,
     rsvd_pos: u8,
 };
+fn getPixelAddress(x: u32, y: u32, bpp: u32) ?u64 {
+    const si = boot_params_ptr.?.screen_info;
+    if (x >= si.lfb_width or y >= si.lfb_height) return null;
+    const byte_offset = @as(u64, y) * si.lfb_linelength + @as(u64, x) * bpp;
+    if (byte_offset + bpp > si.lfb_size) return null;
+    return si.lfb_base + byte_offset;
+}
 
+var boot_params_ptr: ?*BootParams = null;
 pub export fn _start() callconv(.c) noreturn {
+    boot_params_ptr = @ptrFromInt(asm ("mov %%rdi, %[r]"
+        : [r] "=r" (-> u64),
+    ));
+
+    const bpp = boot_params_ptr.?.screen_info.lfb_depth / 8;
+    //const pitch_pixels = boot_params_ptr.?.screen_info.lfb_linelength / bpp;
+
+    const addr = getPixelAddress(0, 0, bpp) orelse @panic("bad pixel");
+    const ptr: *volatile u32 = @ptrFromInt(addr);
+    ptr.* = 0x00FF0000; // if rsvd_pos=24 and RGB order; adjust to your channel layout
+    asm volatile ("hlt");
+
     unreachable;
 }

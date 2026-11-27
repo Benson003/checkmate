@@ -9,6 +9,7 @@ const DISK_NAME = "disk";
 const DISK_EXT = "img";
 
 pub fn build(b: *std.Build) void {
+
     // Target UEFI for BOOTX64.EFI
     const boot_uefi_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
@@ -27,12 +28,14 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("boot/uefi/main.zig"),
         .target = boot_uefi_target,
         .optimize = optimize,
+        .pic = true,
     });
 
     const kernel_mod = b.createModule(.{
         .root_source_file = b.path("kernel/kernel.zig"),
         .optimize = optimize,
         .target = kernel_target,
+        .pic = true,
     });
     boot_uefi_mod.addImport("kernel", kernel_mod);
 
@@ -47,8 +50,8 @@ pub fn build(b: *std.Build) void {
         .name = "checkmate",
         .root_module = kernel_mod,
         .use_llvm = true,
-        .linkage = .static,
     });
+    kernel.pie = true;
 
     // These steps are there to build the img file QEMU will run
     // This creates a blank image of size 64 M
@@ -100,25 +103,43 @@ pub fn build(b: *std.Build) void {
 
     kmcopy.addFileArg(kernel.getEmittedBin());
     kmcopy.addArg("::/EFI/CHECKMATE.BIN");
-    kmcopy.step.dependOn(&mmd.step);
+    kmcopy.step.dependOn(&emcopy.step);
 
     b.getInstallStep().dependOn(&emcopy.step);
+    b.getInstallStep().dependOn(&kmcopy.step);
     b.installArtifact(efi);
     b.installArtifact(kernel);
-
     const qemu_run = b.addSystemCommand(&.{
         "qemu-system-x86_64",
         "-machine",
         "q35",
+        "-cpu",
+        "max",
+        "-smp",
+        "4",
         "-m",
         "256M",
+        "-rtc",
+        "base=utc",
         "-drive",
         fmt("if=ide,format=raw,file={s}.{s}", .{ DISK_NAME, DISK_EXT }),
         "-bios",
         "/usr/share/edk2/x64/OVMF.4m.fd",
+        "-device",
+        "virtio-rng-pci",
+        "-device",
+        "qemu-xhci",
+        "-nic",
+        "user,model=e1000",
         "-serial",
         "stdio",
         "-no-reboot",
+        "-d",
+        "int,cpu_reset,guest_errors",
+        "-D",
+        "qemu.log",
+        //"-S",
+        //"-s",
     });
     qemu_run.step.dependOn(&emcopy.step);
     qemu_run.step.dependOn(&kmcopy.step);
